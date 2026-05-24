@@ -1,4 +1,4 @@
-# app_etichette.py — Generatore Etichette Poste Delivery Business Express
+# app_etichette.py — Generatore Etichette
 # Versione Streamlit — layout 113.96 × 104.01 mm — Zebra ZT410/ZT411 203 dpi
 
 import streamlit as st
@@ -11,7 +11,7 @@ from reportlab.lib.units import mm
 from PIL import Image as PILImage, ImageDraw
 
 st.set_page_config(
-    page_title="Etichette Poste Business Express",
+    page_title="Generatore Etichette",
     page_icon="🏷️",
     layout="wide",
 )
@@ -33,7 +33,7 @@ st.markdown("""
     }
 </style>
 <div class="header-bar">
-    <p class="header-title">🏷️ postedeliverybusiness express — Generatore Etichette</p>
+    <p class="header-title">🏷️ Generatore Etichette</p>
     <p class="header-sub">113.96 × 104.01 mm &nbsp;|&nbsp; Zebra ZT410 / ZT411 &nbsp;|&nbsp; 203 dpi</p>
 </div>
 """, unsafe_allow_html=True)
