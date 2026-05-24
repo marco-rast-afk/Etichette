@@ -1,0 +1,2 @@
+# Etichette
+Generazione diverse etichette
