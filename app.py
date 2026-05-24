@@ -283,7 +283,7 @@ def genera_pdf(dati: dict, output_path: str, accessorio: str = "", extra_code: s
         cap_h, ext_h_dx = _split_heights(DX_AVAIL, n_cap, n_ext_dx, GAP_BC, GS1_MIN, ratio=0.50)
         ext_ybot_dx = DX_YBOT + cap_h + GAP_BC
     else:
-        cap_h = DX_AVAIL
+        cap_h = round(DX_AVAIL * 0.50, 2)
 
     bcv2 = barcode_img(cap_code, h=400, vertical=True, mod=4); bcv2p = _tmp(bcv2)
     c.drawImage(bcv2p, DX_X*rmm, DX_YBOT*rmm, width=DX_W*rmm, height=cap_h*rmm, preserveAspectRatio=False)
