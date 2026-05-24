@@ -268,7 +268,7 @@ def genera_pdf(dati: dict, output_path: str, accessorio: str = "", extra_code: s
             extra_h=extra_h_min; main_h=avail-gap-extra_h
         return round(main_h,2), round(extra_h,2)
 
-    ldv_h = round(SX_AVAIL * 0.90, 2)
+    ldv_h = SX_AVAIL
     bcv = barcode_img(codice, h=400, vertical=True, mod=4); bcvp = _tmp(bcv)
     c.drawImage(bcvp, SX_X*rmm, SX_YBOT*rmm, width=SX_W*rmm, height=ldv_h*rmm, preserveAspectRatio=False)
     os.unlink(bcvp)
@@ -277,12 +277,14 @@ def genera_pdf(dati: dict, output_path: str, accessorio: str = "", extra_code: s
     c.drawCentredString(0,0,codice_base); c.restoreState()
 
     # 6. Barcode destro CAP
+    # Il CAP usa sempre ratio=0.50 (stessa altezza con o senza accessorio)
     n_cap = _n_bit(cap_code)
     if ha_extra:
         n_ext_dx = _n_bit(extra_code)
         cap_h, ext_h_dx = _split_heights(DX_AVAIL, n_cap, n_ext_dx, GAP_BC, GS1_MIN, ratio=0.50)
         ext_ybot_dx = DX_YBOT + cap_h + GAP_BC
     else:
+        # Stessa altezza del CAP con accessorio (ratio 0.50 su spazio totale)
         cap_h = round(DX_AVAIL * 0.50, 2)
 
     bcv2 = barcode_img(cap_code, h=400, vertical=True, mod=4); bcv2p = _tmp(bcv2)
@@ -409,6 +411,64 @@ def genera_pdf_solo_barcode(codice: str, cap: str, output_path: str,
     c.showPage(); c.save()
 
 
+# ─── ETICHETTA LIBERA ────────────────────────────────────────────────────────
+def genera_etichetta_libera(righe: list, path: str,
+                             align: str = "center",
+                             border: bool = False,
+                             negativo: bool = False,
+                             W_mm: float = 113.96,
+                             H_mm: float = 104.01):
+    """Genera un PDF con righe di testo centrate/allineate, font auto-adattato."""
+    from reportlab.pdfbase import pdfmetrics
+
+    W_pt = W_mm * rmm; H_pt = H_mm * rmm
+    MARGIN_X = 6 * rmm; MARGIN_Y = 5 * rmm
+    AREA_W = W_pt - 2*MARGIN_X; AREA_H = H_pt - 2*MARGIN_Y
+
+    n = len(righe) if righe else 1
+    row_h = AREA_H / n
+    fs_h = row_h * 0.78; fs_global = fs_h
+    for riga in righe:
+        testo = riga.strip()
+        if not testo: continue
+        fs_w = fs_h
+        while fs_w > 4:
+            if pdfmetrics.stringWidth(testo, "Helvetica-Bold", fs_w) <= AREA_W: break
+            fs_w -= 0.5
+        fs_global = min(fs_global, fs_w)
+    fs_global = max(fs_global, 4)
+
+    block_h = n * row_h
+    offset_y = (AREA_H - block_h) / 2
+    c = rl_canvas.Canvas(path, pagesize=(W_pt, H_pt))
+
+    if negativo:
+        c.setFillColor(colors.black); c.rect(0,0,W_pt,H_pt,fill=1,stroke=0)
+        text_color = colors.white
+    else:
+        text_color = colors.black
+
+    if border:
+        c.setStrokeColor(colors.white if negativo else colors.black)
+        c.setLineWidth(1); c.rect(2*rmm,2*rmm,W_pt-4*rmm,H_pt-4*rmm,fill=0,stroke=1)
+
+    c.setFillColor(text_color); font_name = "Helvetica-Bold"
+    c.setFont(font_name, fs_global)
+
+    for i, riga in enumerate(righe):
+        testo = riga.strip()
+        if not testo: continue
+        row_top = H_pt - MARGIN_Y - offset_y - i*row_h
+        row_bot = row_top - row_h
+        baseline = row_bot + row_h * 0.18
+        tw = pdfmetrics.stringWidth(testo, font_name, fs_global)
+        if align == "center":   x = MARGIN_X + (AREA_W - tw) / 2
+        elif align == "right":  x = MARGIN_X + AREA_W - tw
+        else:                   x = MARGIN_X
+        c.drawString(x, baseline, testo)
+    c.save()
+
+
 # ─── IMPORTA DA EXCEL (OneTracking) ──────────────────────────────────────────
 def leggi_righe_xls(path: str):
     ext = os.path.splitext(path)[1].lower()
@@ -527,7 +587,14 @@ def importa_da_excel(file_bytes, ext) -> dict:
 # ─── UI STREAMLIT ─────────────────────────────────────────────────────────────
 # ════════════════════════════════════════════════════════════════════════════════
 
-tab1, tab2, tab3 = st.tabs(["📦 Spedizione", "🔲 Solo Barcode", "📥 Importa da Excel"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "📦 Spedizione",
+    "🔲 Solo Barcode",
+    "📥 Importa da Excel",
+    "🏷️ 110×120 mm",
+    "🏷️ 100×50 mm",
+    "🏷️ 110×210 mm",
+])
 
 # ── Inizializza session state ──────────────────────────────────────────────────
 defaults = {
@@ -544,6 +611,7 @@ defaults = {
     "peso": "8.0",
     "colli": "1/1",
     "dimensioni": "40x15x40",
+    "contrassegno": "",
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -595,6 +663,19 @@ with tab1:
         ]:
             st.session_state[key] = st.text_input(lbl, value=st.session_state[key], key=f"in_{key}")
 
+        # Campo contrassegno — visibile solo se prefisso LDV lo richiede
+        _PREF_CONTR = ("2U","4U","38","2C","4C")
+        codice_live = st.session_state.get("codice_spedizione","")
+        if codice_live[:2].upper() in _PREF_CONTR:
+            st.divider()
+            st.markdown('<p class="section-label">💶 Contrassegno</p>', unsafe_allow_html=True)
+            st.session_state["contrassegno"] = st.text_input(
+                'Valore contrassegno (es. "110.10€ contanti")',
+                value=st.session_state.get("contrassegno",""),
+                key="in_contrassegno",
+                placeholder='es. 110.10€ contanti'
+            )
+
     with col_acc:
         st.markdown('<p class="section-label">⚙️ Accessori</p>', unsafe_allow_html=True)
         ACCESSORI = [
@@ -634,8 +715,17 @@ with tab1:
         for e in errori: st.warning(f"⚠️ {e}")
     else:
         acc_val = "" if acc_sel == "Nessuno" else acc_sel
+        _PREF_CONTR = ("2U","4U","38","2C","4C")
+        _richiede_contr = codice[:2].upper() in _PREF_CONTR
+        _contr_val = st.session_state.get("contrassegno","").strip()
+        if _richiede_contr and not _contr_val:
+            st.warning("⚠️ Questo codice richiede il campo **Contrassegno** (vedi colonna Destinatario).")
+
         if st.button("⚡ Genera Etichetta PDF", type="primary", use_container_width=True):
-            with st.spinner("Generazione etichetta..."):
+            if _richiede_contr and not _contr_val:
+                st.error("Inserisci il valore del Contrassegno prima di generare l'etichetta.")
+            else:
+              with st.spinner("Generazione etichetta..."):
                 try:
                     tmp_path = tempfile.mktemp(suffix=".pdf")
                     genera_pdf(dict(st.session_state), tmp_path, accessorio=acc_val, extra_code=extra_code)
@@ -719,3 +809,67 @@ with tab3:
                     st.info("💡 Vai alla scheda **Spedizione** per verificare i dati e generare l'etichetta.")
                 except Exception as e:
                     st.error(f"Errore importazione: {e}")
+
+# ════════════════════════════════════════════════════════════════════════════════
+# TAB 4/5/6 — ETICHETTE LIBERE
+# ════════════════════════════════════════════════════════════════════════════════
+_FORMATI_LIBERI = {
+    tab4: ("110×120 mm", 110.0, 120.0),
+    tab5: ("100×50 mm",  100.0,  50.0),
+    tab6: ("110×210 mm", 110.0, 210.0),
+}
+
+for _tab, (_lbl, _W, _H) in _FORMATI_LIBERI.items():
+    with _tab:
+        st.markdown(
+            f"Etichetta **{_lbl}** — ogni riga = una riga sull'etichetta. "
+            "Font auto-adattato. Righe vuote = spaziatura."
+        )
+        _fmt_key = _lbl.replace(" ","_").replace("×","x")
+        _testo = st.text_area(
+            "Testo etichetta",
+            value="FRAGILE\nATTO IN VETRO",
+            height=180,
+            key=f"txt_{_fmt_key}"
+        )
+        _c1, _c2, _c3 = st.columns(3)
+        with _c1:
+            _align = st.radio(
+                "Allineamento",
+                options=["left","center","right"],
+                index=1,
+                horizontal=True,
+                key=f"align_{_fmt_key}"
+            )
+        with _c2:
+            _border = st.checkbox("Mostra bordo", key=f"border_{_fmt_key}")
+        with _c3:
+            _negativo = st.checkbox("⬛ Negativo (sfondo nero)", key=f"neg_{_fmt_key}")
+
+        if st.button(f"⚡ Genera PDF {_lbl}", type="primary",
+                     use_container_width=True, key=f"btn_{_fmt_key}"):
+            _righe = _testo.split("\n")
+            if not any(r.strip() for r in _righe):
+                st.warning("⚠️ Inserisci almeno una riga di testo.")
+            else:
+                with st.spinner("Generazione..."):
+                    try:
+                        _tmp = tempfile.mktemp(suffix=".pdf")
+                        genera_etichetta_libera(
+                            _righe, _tmp,
+                            align=_align, border=_border,
+                            negativo=_negativo, W_mm=_W, H_mm=_H
+                        )
+                        with open(_tmp,"rb") as _f: _pdf = _f.read()
+                        os.unlink(_tmp)
+                        st.success(f"✅ Etichetta {_lbl} generata!")
+                        st.download_button(
+                            f"⬇️ Scarica PDF {_lbl}",
+                            data=_pdf,
+                            file_name=f"etichetta_{_fmt_key}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True,
+                            key=f"dl_{_fmt_key}"
+                        )
+                    except Exception as _e:
+                        st.error(f"Errore: {_e}")
