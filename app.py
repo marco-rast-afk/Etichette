@@ -268,7 +268,7 @@ def genera_pdf(dati: dict, output_path: str, accessorio: str = "", extra_code: s
             extra_h=extra_h_min; main_h=avail-gap-extra_h
         return round(main_h,2), round(extra_h,2)
 
-    ldv_h = SX_AVAIL
+    ldv_h = round(SX_AVAIL * 0.95, 2)
     bcv = barcode_img(codice, h=400, vertical=True, mod=4); bcvp = _tmp(bcv)
     c.drawImage(bcvp, SX_X*rmm, SX_YBOT*rmm, width=SX_W*rmm, height=ldv_h*rmm, preserveAspectRatio=False)
     os.unlink(bcvp)
